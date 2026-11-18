@@ -538,9 +538,14 @@ function substitute_variables(
 ) where {T,F<:Function}
     g = MOI.ScalarAffineFunction(MOI.ScalarAffineTerm{T}[], MOI.constant(f))
     for term in f.terms
-        # This works because substitute_variables actually returns a function,
-        # not a term.
-        g = operate!(+, T, g, substitute_variables(variable_map, term))
+        mapped = variable_map(term.variable)
+        if !(mapped isa ScalarAffineLike{T})
+            # The mapped affine function may have a different coefficient
+            # type, for example, Float64 when T is ComplexF64.
+            mapped = convert(MOI.ScalarAffineFunction{T}, mapped)
+        end
+        # Fuse scaling and addition without copying the mapped function.
+        MA.operate!(MA.add_mul, g, term.coefficient, mapped)
     end
     return g
 end
@@ -1017,15 +1022,19 @@ is_canonical(::Union{MOI.VariableIndex,MOI.VectorOfVariables}) = true
 function is_canonical(f::MOI.ScalarNonlinearFunction)
     # Don't use recursion here. This gets called for all scalar nonlinear
     # constraints.
-    stack = Any[arg for arg in f.args]
+    # A subexpression may appear several times in the expression graph, we
+    # visit it only once.
+    visited = Base.IdSet{MOI.ScalarNonlinearFunction}()
+    stack = MOI.ScalarNonlinearFunction[f]
     while !isempty(stack)
-        arg = pop!(stack)
-        if arg isa MOI.ScalarNonlinearFunction
-            for a in arg.args
-                push!(stack, a)
-            end
-        else
-            if !is_canonical(arg)
+        g = pop!(stack)
+        for arg in g.args
+            if arg isa MOI.ScalarNonlinearFunction
+                if !(arg in visited)
+                    push!(visited, arg)
+                    push!(stack, arg)
+                end
+            elseif !is_canonical(arg)
                 return false
             end
         end

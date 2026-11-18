@@ -27,6 +27,9 @@ function @main(args::Vector{String})::Cint
     if head == "--linear"
         return run_linear(args)
     end
+    if head == "--names"
+        return run_names(args)
+    end
     return 1  # Incorrect head
 end
 
@@ -76,6 +79,14 @@ function run_linear(args::Vector{String})::Cint
     objective = MOI.ScalarAffineFunction([MOI.ScalarAffineTerm(1.0, x)], 0.0)
     MOI.set(model, MOI.ObjectiveSense(), MOI.MIN_SENSE)
     MOI.set(model, MOI.ObjectiveFunction{typeof(objective)}(), objective)
+    return _write(model, args)
+end
+
+# A second variable named `x`, which is renamed.
+function run_names(args::Vector{String})::Cint
+    model, _ = _model()
+    y = MOI.add_variable(model)
+    MOI.set(model, MOI.VariableName(), y, "x")
     return _write(model, args)
 end
 
